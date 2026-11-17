@@ -13,10 +13,27 @@
 
 ## 🚀 Quick Start
 
+### Tam Avtonom Orkestrator (CLI) — tövsiyə olunur
+
+```bash
+source .venv/bin/activate
+export PATH="$PWD/tools/bin:$PATH"
+
+# Mühit diaqnostikası
+python -m orchestrator.cli doctor
+
+# Tam pipeline: SAST + secrets + SCA + canlı DAST
+node target_app/server.js &
+python -m orchestrator.cli run --project ./target_app --target http://localhost:8000 --profile full
+
+# Profillər: full | fast | qa | pentest   (çıxış kodu: 0=keç, 1=blok)
+```
+
+Ətraflı: [ORCHESTRATOR.md](ORCHESTRATOR.md)
+
 ### Desktop Application
 
 ```bash
-# Install tools
 install_tools.ps1
 
 # Launch UI
@@ -41,9 +58,11 @@ Pipeline automatically runs on push/PR:
 | Audit Engine | SAST | ✅ Active |
 | Semgrep | SAST | ✅ Active |
 | Gitleaks | Secrets | ✅ Active |
-| Nuclei | Templates | ✅ Active |
-| Trivy | SCA | ⚠️ Manual |
-| Strix | DAST | ⚠️ Custom |
+| Nuclei | Templates/DAST | ✅ Active |
+| Trivy | SCA+Secrets+IaC | ✅ Active |
+| Strix | AI DAST | ⚙️ Şərti (Docker + LLM_API_KEY tələb edir, yoxdursa SKIPPED) |
+
+> Windows installer (`install_tools.py`) əvəzinə Linux/macOS-da `bash tools/install.sh` istifadə edin.
 
 ## 🎨 UI Design
 

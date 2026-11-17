@@ -155,7 +155,9 @@ RULES = [
         rule_id="VS-011",
         name="CORS Wildcard",
         severity="high",
-        pattern=r'Access-Control-Allow-Origin[\'"]?\s*:\s*[\'"]?\*',
+        # 1) Access-Control-Allow-Origin: *   2) res.header("Access-Control-Allow-Origin", "*")
+        # 3) cors({origin: '*'})
+        pattern=r'(Access-Control-Allow-Origin[\'"]?\s*[:,]\s*[\'"]?\*|origin\s*:\s*[\'"]\*[\'"])',
         description="CORS wildcard (*) istifadə olunur",
         cwe="CWE-942",
         owasp="A05:2021"
@@ -203,6 +205,14 @@ class AuditEngine:
 
         return all_findings
 
+    def scan_content(self, content: str, file_path: str = "<inline>") -> List[Dict[str, Any]]:
+        """Sətir mətnini skan edir (testlər və inline yoxlama üçün)"""
+        all_findings = []
+        for rule in self.rules:
+            findings = rule.check(content, file_path)
+            all_findings.extend(findings)
+        return all_findings
+
     def scan_project(self, project_path: Path, extensions: List[str] = None) -> List[Dict[str, Any]]:
         """Bütün proyekti skan edir"""
         if extensions is None:
@@ -212,7 +222,7 @@ class AuditEngine:
         for ext in extensions:
             for file_path in project_path.rglob(f'*{ext}'):
                 # node_modules, venv və s. atlayırıq
-                if any(p in file_path.parts for p in ['node_modules', 'venv', '.git', 'dist', 'build']):
+                if any(p in file_path.parts for p in ['node_modules', 'venv', '.git', 'dist', 'build', 'scan_out']):
                     continue
                 findings = self.scan_file(file_path)
                 all_findings.extend(findings)
