@@ -46,8 +46,9 @@ trivy.json
 nuclei.json
 report.pdf
 
-# Tools
+# Tools — binary-lər repoya düşmür (GitHub 100MB limiti); tools/install.sh / install_tools.py ilə yüklənir
 .vibeshield/
+tools/bin/
 
 # Node
 node_modules/
