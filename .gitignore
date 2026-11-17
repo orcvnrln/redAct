@@ -1,0 +1,57 @@
+# Config with secrets
+desktop_app/config.json
+config.json
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg-info/
+.pytest_cache/
+
+# Virtual env
+venv/
+env/
+ENV/
+.venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.kiro/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Build
+dist/
+build/
+
+# Logs
+*.log
+
+# Output
+audit_out/
+findings.json
+unified_findings.json
+semgrep.json
+trivy.json
+nuclei.json
+report.pdf
+
+# Tools
+.vibeshield/
+
+# Node
+node_modules/
+package-lock.json
+
+# Docker
+.docker/

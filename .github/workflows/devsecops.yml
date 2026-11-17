@@ -1,0 +1,204 @@
+name: 7-Addimli Deterministik DevSecOps (OpenRouter AI)
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: write
+  security-events: write
+
+jobs:
+  devsecops:
+    runs-on: ubuntu-latest
+    steps:
+      # ============================================================
+      # Addım 1 — Build + Unit Test
+      # ============================================================
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Build & Unit Test
+        run: npm ci && npm test -- --ci
+
+      # ============================================================
+      # Addım 2 — Statik Yoxlama (Gitleaks ∥ Semgrep ∥ Trivy)
+      # Her aletin çıxış faylı saxlanır; qəbul qərarı Addım 6-də düşülür.
+      # ============================================================
+      - name: Gitleaks (Secrets)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
+
+      - name: Semgrep (SAST)
+        run: |
+          pip install semgrep
+          semgrep --config=auto --error --json --output semgrep.json . || true
+        continue-on-error: true
+
+      - name: Trivy (SCA + Image)
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          severity: 'CRITICAL,HIGH'
+          exit-code: '1'
+          format: 'json'
+          output: 'trivy.json'
+        continue-on-error: true
+
+      # ============================================================
+      # Addım 2.5 — Mövcud Audit Motoru (Deterministik)
+      # ============================================================
+      - name: Run Audit Engine
+        id: audit
+        continue-on-error: true
+        run: |
+          pip install -e .
+          python -m audit.run_audit --project . --out audit_out/ --fail-on critical,high || true
+          
+      - name: Upload Audit Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: audit-findings
+          path: audit_out/
+
+      # ============================================================
+      # Addım 2.6 — Kod Keyfiyyəti Qapısı (SonarCloud pulsuz / CE)
+      # SONAR_TOKEN yoxdursa skipt olur.
+      # ============================================================
+      - name: SonarQube Scan
+        if: ${{ secrets.SONAR_TOKEN != '' }}
+        uses: SonarSource/sonarqube-scan-action@v5
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+
+      - name: Quality Gate
+        if: ${{ secrets.SONAR_TOKEN != '' }}
+        uses: SonarSource/sonarqube-quality-gate-action@v1
+        timeout-minutes: 5
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+      # ============================================================
+      # Addım 3 — Sandbox Deploy (internal: true, xarici cixis yoxdur)
+      # ============================================================
+      - name: Deploy Sandbox
+        run: docker compose -f docker-compose.sandbox.yml up -d
+
+      # ============================================================
+      # Addım 4 — AI Pentest (Strix + OpenRouter)
+      # STRIX_LLM = openrouter/google/gemma-2-9b-it (pulsuz tier)
+      # LLM_API_KEY = OPENROUTER_API_KEY
+      # ============================================================
+      - name: Strix Attack (OpenRouter)
+        id: strix
+        continue-on-error: true
+        env:
+          STRIX_LLM: openrouter/google/gemma-2-9b-it
+          LLM_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          LLM_API_BASE: https://openrouter.ai/api/v1
+        run: |
+          chmod +x pentest/run-scan.sh
+          ./pentest/run-scan.sh || true
+
+      - name: Nuclei Fallback Scan (LLM yoxdursa)
+        if: steps.strix.outcome == 'failure' && steps.strix.conclusion != 'skipped'
+        continue-on-error: true
+        run: |
+          chmod +x pentest/nuclei-scan.sh
+          ./pentest/nuclei-scan.sh || true
+
+      # ============================================================
+      # Addım 5 — AI Auto-Fix → PR (yalnız Strix uğursuz olduqda)
+      # ============================================================
+      - name: Kavach AI Auto-Fix
+        if: steps.strix.outcome == 'failure'
+        run: |
+          pip install kavach-ai
+          kavach --repo ${{ github.repository }} --pr ${{ github.event.pull_request.number }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # ============================================================
+      # Addım 6 — Deterministik Qapı (jq + unified_findings.json)
+      # Qərar LLM-dən DEYIL, yalnız JSON-dan oxunur.
+      # ============================================================
+      - name: Nəticələri Birləşdirmək
+        if: always()
+        run: |
+          # Bütün mövcud findings fayllarını tap
+          FILES=""
+          [ -f semgrep.json ] && FILES="$FILES semgrep.json"
+          [ -f trivy.json ] && FILES="$FILES trivy.json"
+          [ -f findings.json ] && FILES="$FILES findings.json"
+          [ -f nuclei.json ] && FILES="$FILES nuclei.json"
+          [ -f audit_out/audit_findings.json ] && FILES="$FILES audit_out/audit_findings.json"
+
+          if [ -n "$FILES" ]; then
+            jq -s 'map(select(. != null)) | add' $FILES 2>/dev/null > unified_findings.json \
+              || echo '{"findings": []}' > unified_findings.json
+          else
+            echo '{"findings": []}' > unified_findings.json
+          fi
+          
+          # Xülasə çap et
+          echo "=== Unified Findings Summary ==="
+          jq '.findings | group_by(.severity) | map({severity: .[0].severity, count: length})' unified_findings.json || echo "[]"
+
+      - name: Security Gate
+        if: always()
+        run: |
+          CRITICAL=$(jq '[.findings[]? | select(.severity=="critical" or .severity=="high")] | length' unified_findings.json 2>/dev/null || echo 0)
+          TOTAL=$(jq '[.findings[]?] | length' unified_findings.json 2>/dev/null || echo 0)
+          
+          echo "=== Security Gate Results ==="
+          echo "Total findings: $TOTAL"
+          echo "Critical/High: $CRITICAL"
+          echo "=============================="
+          
+          if [ "$CRITICAL" -gt 0 ]; then
+            echo "::error::$CRITICAL kritik/yüksək zəiflik tapıldı — DEPLOY BLOKLANDI"
+            echo "::group::Critical/High Findings"
+            jq '[.findings[]? | select(.severity=="critical" or .severity=="high")] | .[] | "\(.tool): \(.title) [\(.file):\(.line)]"' unified_findings.json -r
+            echo "::endgroup::"
+            exit 1
+          else
+            echo "::notice::✅ Security gate keçdi — kritik zəiflik yoxdur"
+          fi
+
+      # ============================================================
+      # Addım 7 — Vahid Hesabat Paneli (devsecops-radar)
+      # ============================================================
+      - name: Unified Report
+        if: always()
+        run: |
+          pip install devsecops-radar
+          devsecops-radar --semgrep semgrep.json --trivy trivy.json \
+            --findings unified_findings.json --analyze --report report.pdf || true
+
+      - name: Upload Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-report
+          path: |
+            report.pdf
+            unified_findings.json
+
+      # ============================================================
+      # PUBLISH / DEPLOY — yalnız Addım 6 uğurlu üçün
+      # ============================================================
+      - name: Publish / Deploy
+        if: success()
+        run: |
+          echo "✅ Qapı keçdi — publish/deploy icra edile bilər"

@@ -1,0 +1,8 @@
+{
+  "name": "devsecops-demo",
+  "version": "1.0.0",
+  "description": "7-Addimli Deterministik DevSecOps pipeline",
+  "scripts": {
+    "test": "echo \"No tests configured\" && exit 0"
+  }
+}

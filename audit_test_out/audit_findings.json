@@ -1,0 +1,39 @@
+{
+  "findings": [
+    {
+      "rule_id": "VS-001",
+      "name": "Hardcoded API Key",
+      "severity": "critical",
+      "file": "C:\\Users\\Spark\\Desktop\\ssimi\\target_app\\server.js",
+      "line": 8,
+      "match": "API_SECRET = 'sk_test_abc123def456ghi789'",
+      "description": "API key hardcoded olunub - secret management istifadə edin",
+      "cwe": "CWE-798",
+      "owasp": "A02:2021"
+    },
+    {
+      "rule_id": "VS-006",
+      "name": "Debug/Admin Endpoint",
+      "severity": "high",
+      "file": "C:\\Users\\Spark\\Desktop\\ssimi\\target_app\\server.js",
+      "line": 37,
+      "match": "/debug/",
+      "description": "Debug/admin endpoint production-da açıq qala bilər",
+      "cwe": "CWE-489",
+      "owasp": "A05:2021"
+    }
+  ],
+  "summary": {
+    "total": 2,
+    "critical": 1,
+    "high": 1,
+    "medium": 0,
+    "low": 0,
+    "by_rule": {
+      "VS-001": 1,
+      "VS-006": 1
+    }
+  },
+  "deterministic": true,
+  "llm_involved": false
+}

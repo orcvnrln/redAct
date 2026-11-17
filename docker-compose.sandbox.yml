@@ -1,0 +1,49 @@
+services:
+  target_app:
+    build: ./target_app
+    ports:
+      - "8000:8000"
+    networks: 
+      - sandbox_net
+    read_only: true
+    cap_drop: 
+      - ALL
+    security_opt: 
+      - no-new-privileges:true
+    user: "10001"
+    environment:
+      - NODE_ENV=production
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # Strix öz sandbox konteynerini idarə edir, lakin hədəfə çatması lazımdır
+  attacker:
+    image: ghcr.io/usestrix/strix-sandbox:latest
+    networks: 
+      - sandbox_net
+    depends_on:
+      target_app:
+        condition: service_healthy
+    environment:
+      - STRIX_TARGET=http://target_app:8000
+      - STRIX_CONFIG=/workspace/pentest/strix-config.yaml
+    volumes:
+      - ./pentest:/workspace/pentest:ro
+      - ./findings:/workspace/findings
+    cap_drop: 
+      - ALL
+    security_opt: 
+      - no-new-privileges:true
+    read_only: true
+
+networks:
+  sandbox_net:
+    driver: bridge
+    internal: true   # xarici şəbəkə çıxışı YOXDUR
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24

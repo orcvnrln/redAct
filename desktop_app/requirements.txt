@@ -1,0 +1,12 @@
+# DevSecOps Desktop Tool dependencies
+# Tkinter comes with Python standard library (no install needed)
+# External CLI tools (install separately):
+# - strix: curl -sSL https://strix.ai/install | bash
+# - nuclei: https://github.com/projectdiscovery/nuclei
+# - semgrep: pip install semgrep
+# - trivy: https://github.com/aquasecurity/trivy
+# - gitleaks: https://github.com/gitleaks/gitleaks
+
+# Python packages
+pyyaml>=6.0
+requests>=2.31.0
