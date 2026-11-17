@@ -12,21 +12,30 @@ permissions:
 jobs:
   devsecops:
     runs-on: ubuntu-latest
+    # GitHub məhdudiyyəti: `secrets` konteksti if: şərtlərində işləmir —
+    # buna görə job-level env-ə köçürülür (if: env.SONAR_TOKEN != '')
+    env:
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
     steps:
       # ============================================================
-      # Addım 1 — Build + Unit Test
+      # Addım 1 — Unit Test (pytest — repodun REAL testləri, 27 test)
+      # QEYD: npm ci CI-də işləməz — package-lock.json repoda yoxdur
+      # (gitignored); node build Addım 3-də docker compose içindədir
       # ============================================================
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
-          node-version: '20'
-          cache: 'npm'
+          python-version: '3.12'
 
-      - name: Build & Unit Test
-        run: npm ci && npm test -- --ci
+      - name: Unit Test (pytest)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e . pytest pyyaml requests
+          python -m pytest tests/ -q
 
       # ============================================================
       # Addım 2 — Statik Yoxlama (Gitleaks ∥ Semgrep ∥ Trivy)
@@ -76,14 +85,14 @@ jobs:
       # SONAR_TOKEN yoxdursa skipt olur.
       # ============================================================
       - name: SonarQube Scan
-        if: ${{ secrets.SONAR_TOKEN != '' }}
+        if: env.SONAR_TOKEN != ''
         uses: SonarSource/sonarqube-scan-action@v5
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
 
       - name: Quality Gate
-        if: ${{ secrets.SONAR_TOKEN != '' }}
+        if: env.SONAR_TOKEN != ''
         uses: SonarSource/sonarqube-quality-gate-action@v1
         timeout-minutes: 5
         env:
