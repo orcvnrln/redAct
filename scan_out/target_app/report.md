@@ -1,8 +1,8 @@
 # 🛡️ VibeShield — Tam Avtonom DevSecOps Hesabatı
 
-**Tarix:** 2026-11-17T21:39:43.429891  
+**Tarix:** 2026-11-17T22:01:59.406615  
 **Proyekt:** `/home/main/redact/redAct/target_app`  
-**Live hədəf:** `yoxdur (yalnız statik)`  
+**Live hədəf:** `http://localhost:8000`  
 **Profil:** `fast`
 
 ## 🔀 Gate Qərarı (deterministik, LLM-siz)
@@ -21,8 +21,8 @@
 
 | Tool | Status | Tapıntı | Müddət | Qeyd |
 |---|---|---|---|---|
-| audit_engine | ✅ OK | 2 | 0.09s | — |
-| gitleaks | ✅ OK | 1 | 0.94s | — |
+| audit_engine | ✅ OK | 2 | 0.06s | — |
+| gitleaks | ✅ OK | 1 | 0.98s | — |
 
 ## 🚨 Tapıntılar (critical→info sıralı)
 

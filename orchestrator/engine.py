@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Dict, Any, List, Optional, Type
 
 from . import unified as U
+from . import config
 from .runner import ExecResult
 from .gate import DeterministicGate
 from .report import write_json, write_markdown
@@ -130,13 +131,20 @@ class Pipeline:
             # audit_engine repo daxili Python moduludur — binary axtarılmır
             binary = "internal" if name == "audit_engine" else resolve(name)
             env = {}
+            # Açar sıralaması (config.get_value): mühit dəyişəni → config.json
+            gh_token = config.get_value("GITHUB_TOKEN")
+            if gh_token:
+                env["GITHUB_TOKEN"] = gh_token     # gələcək GH-aware tool-lar üçün real keçid
             if name == "strix":
-                import os
-                key = os.environ.get("LLM_API_KEY", "")
+                key = config.get_value("LLM_API_KEY")
+                model = config.get_value("STRIX_LLM")
+                base = config.get_value("LLM_API_BASE")
                 if key:
                     env["LLM_API_KEY"] = key
-                if os.environ.get("STRIX_LLM"):
-                    env["STRIX_LLM"] = os.environ["STRIX_LLM"]
+                if model:
+                    env["STRIX_LLM"] = model
+                if base:
+                    env["LLM_API_BASE"] = base
             tool = cls(binary=binary, timeout=self.timeout, env_extra=env)
             tool.line_callback = lambda line, _n=name: self.emit(
                 "log", name=_n, level="out", line=line[:400]
@@ -251,3 +259,8 @@ def _raw_file_for(t: BaseTool) -> str:
 def datetime_from_epoch(epoch: float) -> str:
     import datetime as dt
     return dt.datetime.fromtimestamp(epoch).isoformat()
+
+
+def _load_config() -> dict:
+    """Geri uyğunluq: config moduluna həvalə edir."""
+    return config.load_config()
