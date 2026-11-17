@@ -14,6 +14,14 @@ from .. import unified
 from ..unified import normalize_audit, normalize_semgrep, normalize_gitleaks, \
     normalize_trivy, normalize_nuclei, normalize_strix, dedup, rank
 
+import re as _re
+
+_ANSI_RE = _re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+
+
+def _strip_ansi(s: str) -> str:
+    return _ANSI_RE.sub("", s)
+
 
 class ToolStatus:
     OK = "OK"
@@ -21,6 +29,7 @@ class ToolStatus:
     SKIPPED = "SKIPPED"
     TIMEOUT = "TIMEOUT"
     NOT_FOUND = "NOT_FOUND"
+    CANCELLED = "CANCELLED"
 
 
 class BaseTool:
@@ -38,11 +47,23 @@ class BaseTool:
         self.reason: str = ""
         self.exec_result: Optional[ExecResult] = None
         self.findings: List[dict] = []
+        self.line_callback = None     # Pipeline təyin edir: canlı sətir axını
 
     @property
     def available(self) -> bool:
         # audit_engine kimi daxili tool-lar üçün binary None ola bilməz, amma "internal" yazılır
         return self.binary is not None
+
+    def _emit_line(self, line: str) -> None:
+        if self.line_callback:
+            try:
+                self.line_callback(_strip_ansi(line))
+            except Exception:
+                pass
+
+    def cancel(self) -> bool:
+        """İşlək subprocess-i öldürür."""
+        return self.runner.cancel()
 
     def run(self, project: Path, out_dir: Path, target: Optional[str]) -> None:
         raise NotImplementedError
@@ -57,6 +78,10 @@ class BaseTool:
         if exec_result.timed_out:
             self.status = ToolStatus.TIMEOUT
             self.reason = exec_result.error or ""
+            return
+        if exec_result.exit_code is not None and exec_result.exit_code < 0:
+            self.status = ToolStatus.FAILED
+            self.reason = f"proses dayandırıldı (signal {-exec_result.exit_code})"
             return
         if exec_result.exit_code in ok_codes:
             self.status = ToolStatus.OK
@@ -94,12 +119,15 @@ class AuditEngineTool(BaseTool):
         out_dir.mkdir(parents=True, exist_ok=True)
         findings_file = out_dir / "audit_findings.json"
 
+        self._emit_line("[audit] 13 qayda yükləndi — regex əsaslı SAST")
         # Modul kimi çağırırıq — subprocess-overhead yoxdur, nəticə eynidir
         from audit.rules import AuditEngine
         try:
             engine = AuditEngine()
+            self._emit_line(f"[audit] skan başlayır: {project}")
             findings = engine.scan_project(project)
             summary = engine.get_summary(findings)
+            self._emit_line(f"[audit] {summary['total']} tapıntı (critical={summary['critical']}, high={summary['high']})")
         except Exception as e:
             self.status = ToolStatus.FAILED
             self.reason = f"audit engine xətası: {e}"
@@ -134,7 +162,7 @@ class SemgrepTool(BaseTool):
             "--exclude", ".venv",
             str(project),
         ]
-        exec_result = self.runner.exec(cmd)
+        exec_result = self.runner.exec(cmd, on_line=self._emit_line)
         # semgrep: 0=təmiz, 1=tapıntı var
         self._finish(exec_result, ok_codes=(0, 1), parse=normalize_semgrep, findings_file=findings_file)
         if self.status == ToolStatus.OK and not findings_file.is_file():
@@ -161,7 +189,7 @@ class GitleaksTool(BaseTool):
         ]
         if not (project / ".git").exists():
             cmd.append("--no-git")    # git tarixçəsi olmayan kataloq
-        exec_result = self.runner.exec(cmd)
+        exec_result = self.runner.exec(cmd, on_line=self._emit_line)
         self._finish(exec_result, ok_codes=(0,), parse=normalize_gitleaks, findings_file=findings_file)
 
 
@@ -184,7 +212,7 @@ class TrivyTool(BaseTool):
             "--skip-dirs", "node_modules,scan_out,.venv",
             str(project),
         ]
-        exec_result = self.runner.exec(cmd)
+        exec_result = self.runner.exec(cmd, on_line=self._emit_line)
         self._finish(exec_result, ok_codes=(0,), parse=normalize_trivy, findings_file=findings_file)
 
 
@@ -210,7 +238,7 @@ class NucleiTool(BaseTool):
             "-retries", "1",
             "-silent",
         ]
-        exec_result = self.runner.exec(cmd, )
+        exec_result = self.runner.exec(cmd, on_line=self._emit_line)
         # nuclei: 0=tapıntı yox, 1=tapıntı var
         self._finish(exec_result, ok_codes=(0, 1), parse=normalize_nuclei, findings_file=findings_file)
 
@@ -245,7 +273,7 @@ class StrixTool(BaseTool):
             "--scan-mode", "quick",
             "--output", str(findings_file),
         ]
-        exec_result = self.runner.exec(cmd)
+        exec_result = self.runner.exec(cmd, on_line=self._emit_line)
         self._finish(exec_result, ok_codes=(0, 1, 2), parse=normalize_strix, findings_file=findings_file)
 
 

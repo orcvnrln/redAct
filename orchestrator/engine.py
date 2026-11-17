@@ -70,11 +70,12 @@ def wait_for_target(target: str, timeout_s: int = 90) -> tuple:
 
 
 class Pipeline:
-    """Bir DevSecOps run-u: statik (paralel) + DAST (hədəflə) + gate + report."""
+    """Bir DevSecOps run-u: statik (paralel) + DAST (hədəflə) + gate + report.
+    on_event callback: real vaxt hadisə axını (GUI/web üçün)."""
 
     def __init__(self, profile: str, project: Path, out_dir: Path,
                  target: Optional[str] = None, fail_on: Optional[List[str]] = None,
-                 timeout: int = 900, verbose: bool = False):
+                 timeout: int = 900, verbose: bool = False, on_event: Optional[callable] = None):
         self.profile_name = profile
         self.profile = PROFILES[profile]
         self.project = project.resolve()
@@ -84,6 +85,27 @@ class Pipeline:
         self.timeout = timeout
         self.verbose = verbose
         self.tools: List[BaseTool] = []
+        self._on_event = on_event or (lambda e: None)
+        self._cancelled = False
+        self.result: Optional[dict] = None
+
+    def emit(self, kind: str, **data) -> None:
+        """Hadisə yayımla (kind: run_start|target|log|tool_start|tool_finish|findings|gate|done)."""
+        try:
+            self._on_event({"kind": kind, **data})
+        except Exception:
+            pass  # hadisə istehlakçısı çöksə pipeline pozmur
+
+    def cancel(self) -> None:
+        """Bütün işlək subprocess-ləri öldürür."""
+        self._cancelled = True
+        for t in self.tools:
+            t.cancel()
+        self.emit("log", name="orchestrator", level="warn", line="⛔ Cancel istənildi — proseslər dayandırılır")
+
+    @property
+    def cancelled(self) -> bool:
+        return self._cancelled
 
     def log(self, msg: str) -> None:
         print(f"[orchestrator] {msg}", flush=True)
@@ -93,11 +115,14 @@ class Pipeline:
         if needs and not self.target:
             raise ValueError(f"Profil '{self.profile_name}' live hədəf tələb edir: {needs} (— --target əlavə edin)")
         if self.target:
+            self.emit("log", name="orchestrator", level="info", line=f"⏳ Hədəf gözlənilir: {self.target}")
             ok, url, note = wait_for_target(self.target)
             if ok:
                 self.log(f"✅ Live hədəf hazır: {url} ({note})")
+                self.emit("target", ready=True, url=url, note=note)
             else:
                 self.log(f"⚠️ Hədəf cavab vermədi: {note} — DAST skan buna baxmayracak çalışacaq")
+                self.emit("target", ready=False, url="", note=note)
 
     def _build_tools(self) -> None:
         for name in self.profile["tools"]:
@@ -113,20 +138,36 @@ class Pipeline:
                 if os.environ.get("STRIX_LLM"):
                     env["STRIX_LLM"] = os.environ["STRIX_LLM"]
             tool = cls(binary=binary, timeout=self.timeout, env_extra=env)
+            tool.line_callback = lambda line, _n=name: self.emit(
+                "log", name=_n, level="out", line=line[:400]
+            )
             self.tools.append(tool)
             if not tool.available:
                 self.log(f"⚠️ {name}: binary yoxdur → SKIPPED")
+                self.emit("log", name="orchestrator", level="warn", line=f"⚠️ {name}: binary yoxdur → SKIPPED")
 
     def _run_static(self, tool: BaseTool) -> BaseTool:
         start = time.time()
+        self.emit("tool_start", name=tool.name)
+        self.log(f"▶ {tool.name} başlayır...")
         try:
             tool.run(self.project, self.out_dir, self.target)
         except Exception as e:  # müdafiə: tool çöksə belə pipeline davam edir
             tool.status = ToolStatus.FAILED
             tool.reason = f"unhandled: {type(e).__name__}: {e}"
         tool.duration_s = round(time.time() - start, 2)
+        # Cancel səbəbindən öldürülmüş prosesləri düzgün etiketlə
+        if (self._cancelled and tool.status == ToolStatus.FAILED
+                and tool.exec_result is not None
+                and tool.exec_result.exit_code is not None and tool.exec_result.exit_code < 0):
+            tool.status = ToolStatus.CANCELLED
+            tool.reason = "run ləğv edildi (Stop)"
+        self.emit("tool_finish", name=tool.name, status=tool.status,
+                  findings_count=len(tool.findings), duration_s=tool.duration_s,
+                  reason=(tool.reason or "")[:200])
         if tool.status == ToolStatus.OK:
             self.log(f"✅ {tool.name}: {len(tool.findings)} tapıntı ({tool.duration_s}s)")
+            self.emit("findings", name=tool.name, findings=tool.findings)
         elif tool.status == ToolStatus.SKIPPED:
             self.log(f"⏭️ {tool.name}: SKIPPED — {tool.reason}")
         elif tool.status in (ToolStatus.FAILED, ToolStatus.TIMEOUT):
@@ -137,6 +178,9 @@ class Pipeline:
 
     def run(self) -> Dict[str, Any]:
         self.log(f"Profil: {self.profile_name} | Proyekt: {self.project} | Hədəf: {self.target or '—'}")
+        self.emit("run_start", profile=self.profile_name, project=str(self.project),
+                  target=self.target or "", fail_on=self.fail_on,
+                  tools=list(self.profile["tools"]))
         self.out_dir.mkdir(parents=True, exist_ok=True)
 
         self._prepare_target()
@@ -171,6 +215,11 @@ class Pipeline:
 
         self.log(f"📊 Cəmi tapıntı: {len(findings)} | Gate: {gate_result['decision']}")
         self.log(f"📄 Hesabat: {report_path}")
+        self.emit("gate", decision=gate_result["decision"], reason=gate_result["reason"],
+                  severity_counts=gate_result["severity_counts"], blocking_count=gate_result["blocking_count"])
+        self.emit("done", exit_code=0 if gate_result["passed"] else 1,
+                  total_findings=len(findings), findings=findings,
+                  report=str(report_path), out_dir=str(self.out_dir), cancelled=self._cancelled)
 
         # CLI exit code: gate qərarına bağlı (0=ALLOW, 1=BLOCK, 2=manqalıq)
         self.result = unified
