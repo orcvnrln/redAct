@@ -39,6 +39,8 @@ build/
 
 # Output
 audit_out/
+scan_out/
+strix_runs/
 findings.json
 unified_findings.json
 semgrep.json

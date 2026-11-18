@@ -61,7 +61,8 @@ CI/CD-də birbaşa işlədilir.
 
 - `unified_findings.json` — bütün tapıntılar vahid şemada (tool, severity, cwe, yer)
 - `report.md` — insan üçün tam hesabat
-- `semgrep.json`, `gitleaks.json`, `trivy.json`, `nuclei.jsonl`, `strix.json` — raw tool çıxışları
+- `semgrep.json`, `gitleaks.json`, `trivy.json`, `nuclei.jsonl` — raw tool çıxışları
+- `strix_runs/<run>/vulnerabilities.json` — Strix öz nəticələrini buraya yazır (`--output` parametri strix CLI-də yoxdur)
 
 ## Arxitektura
 

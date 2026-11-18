@@ -137,15 +137,20 @@ class Pipeline:
                 env["GITHUB_TOKEN"] = gh_token     # gələcək GH-aware tool-lar üçün real keçid
             if name == "strix":
                 key = config.get_value("LLM_API_KEY")
-                model = config.get_value("STRIX_LLM")
-                base = config.get_value("LLM_API_BASE")
+                model = config.get_default("STRIX_LLM")
+                base = config.get_default("LLM_API_BASE")
                 if key:
                     env["LLM_API_KEY"] = key
                 if model:
+                    # Strix LiteLLM üslubunda provayder prefiksi gözləyir:
+                    # openrouter/nvidia/nemotron-...:free
+                    if "openrouter.ai" in (base or ""):
+                        model = "openrouter/" + model.removeprefix("openrouter/")
                     env["STRIX_LLM"] = model
                 if base:
                     env["LLM_API_BASE"] = base
-            tool = cls(binary=binary, timeout=self.timeout, env_extra=env)
+            kwargs = {"cwd": str(self.out_dir)} if name == "strix" else {}
+            tool = cls(binary=binary, timeout=self.timeout, env_extra=env, **kwargs)
             tool.line_callback = lambda line, _n=name: self.emit(
                 "log", name=_n, level="out", line=line[:400]
             )

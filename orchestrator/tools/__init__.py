@@ -247,6 +247,14 @@ class StrixTool(BaseTool):
     name = "strix"
     description = "AI pentest agent (LLM açar + Docker tələb edir)"
 
+    @staticmethod
+    def _newest_vuln(runs_dir: Path, exclude: Optional[set] = None) -> Optional[Path]:
+        if not runs_dir.is_dir():
+            return None
+        cands = [p for p in runs_dir.glob("*/vulnerabilities.json")
+                 if p.is_file() and p.parent.name not in (exclude or set())]
+        return max(cands, key=lambda p: p.stat().st_mtime) if cands else None
+
     def run(self, project: Path, out_dir: Path, target: Optional[str]) -> None:
         if not self.available:
             self.reason = "strix binary yoxdur"
@@ -266,15 +274,32 @@ class StrixTool(BaseTool):
             return
 
         out_dir.mkdir(parents=True, exist_ok=True)
-        findings_file = out_dir / "strix.json"
+        cwd = Path(getattr(self.runner, "cwd", None) or Path.cwd())
+        runs_dir = cwd / "strix_runs"
+        # Köhnə run-un nəticəsini bu run-a aid etməmək üçün əvvəlcədən snapshot.
+        before = {p.parent.name for p in runs_dir.glob("*/vulnerabilities.json")}
+        # Strix nəticəni --output ilə yox, <cwd>/strix_runs/<run>/vulnerabilities.json-a yazır.
         cmd = [
             self.binary, "-n",
             "--target", target,
             "--scan-mode", "quick",
-            "--output", str(findings_file),
+            "--max-turns", "40",
         ]
         exec_result = self.runner.exec(cmd, on_line=self._emit_line)
-        self._finish(exec_result, ok_codes=(0, 1, 2), parse=normalize_strix, findings_file=findings_file)
+        vuln_file = self._newest_vuln(runs_dir, exclude=before)
+        if vuln_file:
+            # exit 2 = tapıntı var (--fail-on default), 0 = təmiz
+            self._finish(exec_result, ok_codes=(0, 2), parse=normalize_strix,
+                         findings_file=vuln_file)
+            if self.status == ToolStatus.OK:
+                self.reason = f"strix run: {vuln_file.parent.name}"
+        elif exec_result.exit_code == 0:
+            self._finish(exec_result, ok_codes=(0,))
+            self.reason = "strix bitdi — tapıntı faylı yoxdur (təmiz run)"
+        else:
+            self.exec_result = exec_result
+            self.status = ToolStatus.FAILED
+            self.reason = f"exit {exec_result.exit_code}: {(exec_result.output_all() or '')[-300:]}"
 
 
 TOOL_REGISTRY = {

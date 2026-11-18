@@ -160,20 +160,25 @@ def normalize_nuclei(data: Any) -> List[Dict[str, Any]]:
     return out
 
 
-def normalize_strix(data: Dict[str, Any]) -> List[Dict[str, Any]]:
+def normalize_strix(data: Any) -> List[Dict[str, Any]]:
+    # Strix iki formatda gələ bilər: {"findings": [...]} (köhnə) və ya
+    # birbaşa vulnerabilities.json siyahısı (yeni CLI).
+    items = data.get("findings", []) if isinstance(data, dict) else data
     out = []
-    for f in data.get("findings", []) or []:
+    for f in items or []:
         if not isinstance(f, dict):
             continue
+        locs = f.get("code_locations") or []
+        loc = locs[0] if locs and isinstance(locs[0], dict) else {}
         out.append({
             "tool": "strix",
             "severity": _norm_sev(f.get("severity")),
             "title": f.get("title", f.get("id", "strix finding")),
             "description": f.get("description", f.get("message", "")),
-            "file": f.get("file", ""),
-            "line": int(f.get("line", 0) or 0),
-            "url": f.get("url", ""),
-            "rule_id": f.get("id", ""),
+            "file": f.get("file") or loc.get("file", ""),
+            "line": int(f.get("line") or loc.get("start_line") or 0),
+            "url": f.get("url") or f.get("target") or f.get("endpoint") or "",
+            "rule_id": f.get("id") or f.get("rule_id", ""),
             "cwe": f.get("cwe", ""),
             "owasp": "",
         })

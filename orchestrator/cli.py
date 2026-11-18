@@ -20,6 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))   # repo root �
 from orchestrator.engine import PROFILES, Pipeline            # noqa: E402
 from orchestrator.resolver import resolve, REPO_ROOT          # noqa: E402
 from orchestrator.tools import TOOL_REGISTRY                  # noqa: E402
+from orchestrator import config                               # noqa: E402
 
 EXIT_ALLOW = 0
 EXIT_BLOCK = 1
@@ -48,10 +49,22 @@ def cmd_doctor(_args) -> int:
             ok = False
         print(f"  {mark} {name:<14} {path or 'QURULMAYIB'}")
     print("-" * 60)
-    print(f"  {'✅' if os.environ.get('LLM_API_KEY') else '⏭️'} LLM_API_KEY      "
-          f"{'təyin edilib (strix aktiv olacaq)' if os.environ.get('LLM_API_KEY') else 'yoxdur — strix SKIPPED'}")
-    print(f"  {'✅' if shutil_which('docker') else '⏭️'} docker           "
-          f"{'var' if shutil_which('docker') else 'yoxdur — strix SKIPPED'}")
+    llm_key = config.get_value("LLM_API_KEY")
+    print(f"  {'✅' if llm_key else '⏭️'} LLM_API_KEY      "
+          f"{'təyin edilib (strix aktiv olacaq)' if llm_key else 'yoxdur — strix SKIPPED'}")
+    docker_bin = shutil_which("docker")
+    daemon = ""
+    if docker_bin:
+        try:
+            info = __import__("subprocess").run(
+                [docker_bin, "info", "--format", "{{.ServerVersion}}"],
+                capture_output=True, text=True, timeout=5,
+            )
+            daemon = info.stdout.strip() if info.returncode == 0 else "əlçatmır"
+        except Exception:
+            daemon = "yoxlanmadı"
+    print(f"  {'✅' if docker_bin else '⏭️'} docker           "
+          f"{docker_bin + (' — daemon ' + daemon if daemon else '') if docker_bin else 'yoxdur — strix SKIPPED'}")
     print(f"  {'✅'} node             {shutil_which('node') or 'yoxdur'}")
     print(f"  {'✅'} jq               {shutil_which('jq') or 'yoxdur'}")
     print("-" * 60)

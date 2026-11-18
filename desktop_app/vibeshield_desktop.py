@@ -251,12 +251,15 @@ def run_selftest() -> int:
         p._build_tools()
         strix = next(t for t in p.tools if t.name == "strix")
         env = getattr(strix.runner, "env_extra", {})
+        # Strix LLM adını LiteLLM formatında (openrouter/<slug>) gözləyir —
+        # OpenRouter bazası üçün prefiks məcburidir, ona görə hər ikisi qəbul olunur.
+        expected_models = {fake["strix_llm"], "openrouter/" + fake["strix_llm"]}
         ok = (env.get("LLM_API_KEY") == fake["llm_api_key"]
-              and env.get("STRIX_LLM") == fake["strix_llm"]
+              and env.get("STRIX_LLM") in expected_models
               and env.get("LLM_API_BASE") == fake["llm_api_base"]
               and env.get("GITHUB_TOKEN") == fake["github_token"])
         report("config.json → StrixTool env (key+model+base+GitHub)", ok,
-               "env keys: " + ",".join(sorted(env)))
+               f"model={env.get('STRIX_LLM')} · env: " + ",".join(sorted(env)))
     except Exception as e:
         report("config.json → StrixTool env", False, f"{type(e).__name__}: {e}")
     finally:
@@ -1119,8 +1122,19 @@ if ctk is not None:
                 p = resolve(n)
                 rows.append((n, "OK" if p else "YOX", (p or "binary tapılmadı → SKIPPED")))
             docker = shutil.which("docker")
-            rows.append(("docker", "OK" if docker else "YOX",
-                         "strix AI agent üçün tələb" if not docker else "strix agent hazır"))
+            d_state, d_detail = "YOX", "quraşdırılmayıb — strix SKIPPED"
+            if docker:
+                try:
+                    r = subprocess.run([docker, "info", "--format", "{{.ServerVersion}}"],
+                                       capture_output=True, text=True, timeout=5)
+                    if r.returncode == 0:
+                        d_state = "OK"
+                        d_detail = f"daemon v{r.stdout.strip()} — strix sandbox hazır"
+                    else:
+                        d_detail = "daemon işləmir — Docker Desktop-ı başladın"
+                except Exception:
+                    d_detail = "daemon yoxlanmadı"
+            rows.append(("docker", d_state, d_detail))
             self.controller.events.put({"kind": "tools_check", "rows": rows})
 
         # ---------------- hadisə dranı ----------------
