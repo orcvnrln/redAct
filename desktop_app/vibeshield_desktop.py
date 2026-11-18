@@ -549,17 +549,18 @@ if ctk is not None:
                 self.tool_cards[name] = {"frame": card, "dot": dot, "cnt": cnt, "sub": sub}
 
             self.gate_frame = ctk.CTkFrame(f, fg_color=C["panel"], corner_radius=13,
-                                           border_width=1, border_color=C["border"], height=64)
+                                           border_width=1, border_color=C["border"])
+            self.gate_frame.grid_columnconfigure(1, weight=1)
             self.gate_icon = ctk.CTkLabel(self.gate_frame, text="", font=ctk.CTkFont(size=24))
-            self.gate_icon.pack(side="left", padx=(18, 8), pady=10)
+            self.gate_icon.grid(row=0, column=0, rowspan=2, padx=(18, 8), pady=10)
             gtitle = ctk.CTkFrame(self.gate_frame, fg_color="transparent")
-            gtitle.pack(side="left")
+            gtitle.grid(row=0, column=1, rowspan=2, sticky="w")
             self.gate_title = ctk.CTkLabel(gtitle, text="", font=self.f_h1)
             self.gate_title.pack(anchor="w")
             self.gate_reason = ctk.CTkLabel(gtitle, text="", font=self.f_s, text_color=C["mut"])
             self.gate_reason.pack(anchor="w")
             self.gate_counts = ctk.CTkFrame(self.gate_frame, fg_color="transparent")
-            self.gate_counts.pack(side="right", padx=18)
+            self.gate_counts.grid(row=0, column=2, rowspan=2, sticky="e", padx=18, pady=8)
             # gizli başlayır:
             self.gate_frame.grid(row=2, column=0, sticky="ew", padx=20, pady=(10, 4))
             self.gate_frame.grid_remove()
@@ -622,8 +623,21 @@ if ctk is not None:
                 self.r_project.insert(0, path)
 
         def _on_run(self):
-            ok, msg = self.controller.start(self.r_profile.get(), self.r_project.get().strip(),
-                                            self.r_target.get().strip())
+            profile = self.r_profile.get()
+            project = self.r_project.get().strip()
+            target = self.r_target.get().strip()
+            meta = PROFILES.get(profile, {})
+            needs = set(meta.get("needs_target") or []) & set(meta.get("tools") or [])
+            if needs and not target:
+                self._log_line(
+                    "orchestrator",
+                    f"⚠ '{profile}' profili DAST üçün hədəf URL tələb edir "
+                    f"({', '.join(sorted(needs))}) — HƏDƏF sahəsinə yaz, məs. http://localhost:8000",
+                    "warn",
+                )
+                self.r_target.focus_set()
+                return
+            ok, msg = self.controller.start(profile, project, target)
             if not ok:
                 self._log_line("orchestrator", f"✗ {msg}", "err")
                 return
