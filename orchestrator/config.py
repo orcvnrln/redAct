@@ -92,6 +92,12 @@ def get_default(env_name: str) -> str:
     return DEFAULTS.get(cfg_name, "")
 
 
+def normalize_model(model: str) -> str:
+    """Strix üslubundakı 'openrouter/...' prefiksini təmizlə — birbaşa API model ID-si üçün."""
+    m = (model or "").strip()
+    return m[len("openrouter/"):] if m.startswith("openrouter/") else m
+
+
 def mask(secret: str) -> str:
     """Açarı UI üçün maskala — tam dəyər heç vaxt göstərilmir."""
     if not secret:

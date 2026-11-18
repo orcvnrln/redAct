@@ -10,7 +10,7 @@ import json
 import urllib.error
 import urllib.request
 
-from .config import get_value, get_default
+from .config import get_value, get_default, normalize_model
 from .keycheck import USER_AGENT
 
 SEVERITY_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
@@ -41,7 +41,7 @@ def _api_base() -> str:
 
 
 def _model() -> str:
-    return get_default("STRIX_LLM")
+    return normalize_model(get_default("STRIX_LLM"))
 
 
 def _headers(key: str) -> dict:
@@ -85,7 +85,7 @@ def _chat(messages, model: str, max_tokens: int = 1600, timeout: int = 90) -> st
     choices = body.get("choices") or []
     if not choices:
         raise AIError(f"API cavabı boş (choices yoxdur): {json.dumps(body, ensure_ascii=False)[:200]}")
-    content = (choices[0].get("message") or {}).get("content", "")
+    content = (choices[0].get("message") or {}).get("content") or ""
     if not content:
         raise AIError("API cavabı boş mətn qaytardı.")
     return content
@@ -99,9 +99,12 @@ def connection_test(model: str = "") -> str:
         raise AIError("API Base təyin edilməyib.")
     if not key:
         raise AIError("API açarı yoxdur — Settings-də əlavə et.")
-    out = _chat([{"role": "user", "content": "ping"}], model=model or _model(), max_tokens=1, timeout=25)
+    # Reasoning modellər (məs. nemotron) token-ləri əvvəlcə "reasoning"-ə xərcləyir,
+    # ona görə max_tokens=1 boş content qaytarır. 64 balanslıdır.
+    out = _chat([{"role": "user", "content": "ping"}], model=model or _model(),
+                max_tokens=64, timeout=45)
     used = model or _model()
-    return f"✅ Bağlantı REAL işləyir — {used} cavab verdi ({base})"
+    return f"✅ Bağlantı REAL işləyir — {used} cavab verdi ({base}): {out.strip()[:40]}"
 
 
 def analyze_findings(findings: list, model: str = "", max_findings: int = 45) -> str:

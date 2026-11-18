@@ -45,6 +45,18 @@ try:
 except Exception:  # headless selftest üçün GUI asılılığı məcburi deyil
     ctk = None
 
+if ctk is not None:
+    # customtkinter 5.2.x: bəzi Tk hadisələrində event.widget sətir olur və
+    # _check_if_valid_scroll AttributeError atır (scroll zamanı konsol spam).
+    _orig_valid_scroll = getattr(ctk.CTkScrollableFrame, "_check_if_valid_scroll", None)
+    if _orig_valid_scroll is not None:
+        def _safe_valid_scroll(self, widget, _orig=_orig_valid_scroll):
+            if widget is None or isinstance(widget, str):
+                return False
+            return _orig(self, widget)
+
+        ctk.CTkScrollableFrame._check_if_valid_scroll = _safe_valid_scroll
+
 
 # --------------------------------------------------------------------------
 # PipelineController — real pipeline hadisələrini thread-ə alır, UI-yə göndərir
@@ -268,7 +280,12 @@ def run_selftest() -> int:
         report("GitHub canlı yoxlama", False, f"{type(e).__name__}: {e}")
 
     # 3) AI analiz: açar yoxdursa REAL xəta qaytarmalıdır (mock cavab yoxdur)
+    #    Testi izolə et: real config.json və env açarı müvəqqəti kənara qoyulur.
+    backup3 = config.CONFIG_PATH.read_bytes() if config.CONFIG_PATH.is_file() else None
+    saved_env_key = os.environ.pop("LLM_API_KEY", None)
     try:
+        if config.CONFIG_PATH.is_file():
+            config.CONFIG_PATH.unlink()
         try:
             ai_analyst.analyze_findings([{"severity": "high", "tool": "x", "title": "t"}])
             report("AI analiz açarsız → AIError (mock yox)", False, "AIError qalxmadı!")
@@ -276,6 +293,11 @@ def run_selftest() -> int:
             report("AI analiz açarsız → AIError (mock yox)", True, str(e))
     except Exception as e:
         report("AI analiz açarsız", False, f"{type(e).__name__}: {e}")
+    finally:
+        if backup3 is not None:
+            config.CONFIG_PATH.write_bytes(backup3)
+        if saved_env_key is not None:
+            os.environ["LLM_API_KEY"] = saved_env_key
 
     # 4) Pipeline canlı run controller üzərindən (fast profil — real tool icrası)
     project = REPO_ROOT / "target_app"

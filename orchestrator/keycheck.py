@@ -11,6 +11,8 @@ import json
 import urllib.error
 import urllib.request
 
+from . import config
+
 USER_AGENT = "VibeShield/2.0 (+desktop)"
 
 
@@ -80,7 +82,7 @@ def check_llm(key: str, base: str, model: str) -> dict:
       live — real HTTP cavabı alındı (şəbəkə məsələsindən asılı deyil)
     """
     base = (base or "").rstrip("/")
-    model = model or "openai/gpt-4o-mini"
+    model = config.normalize_model(model) or "openai/gpt-4o-mini"
     if not base:
         return {"ok": False, "live": False, "detail": "API Base yazılmayıb", "model": model}
 
